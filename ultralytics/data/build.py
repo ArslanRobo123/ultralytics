@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import yaml
-
 import numpy as np
 import torch
 import torch.distributed as dist
+import yaml
 from PIL import Image
 from torch.utils.data import Dataset, dataloader, distributed
 
@@ -226,10 +225,9 @@ def seed_worker(worker_id: int) -> None:
 class HarmonizedClassMap:
     """Harmonize class indices across multiple datasets with per-dataset class filtering.
 
-    Accepts a list of per-dataset YAML paths, each containing a 'names' field and an
-    optional 'classes_to_train' / 'classes_to_train_on' field.  Builds a unified global
-    class list and per-dataset local→global remap dicts so that label class IDs from
-    different datasets can be remapped to a single contiguous ID space at load time.
+    Accepts a list of per-dataset YAML paths, each containing a 'names' field and an optional 'classes_to_train' /
+    'classes_to_train_on' field. Builds a unified global class list and per-dataset local→global remap dicts so that
+    label class IDs from different datasets can be remapped to a single contiguous ID space at load time.
 
     Attributes:
         all_names (list[str]): All unique class names seen across every dataset YAML.
@@ -291,6 +289,7 @@ class HarmonizedClassMap:
                         resolved.add(names[idx])
                         continue
                 from ultralytics.utils import LOGGER as _L
+
                 _L.warning(f"WARNING ⚠️ Ignoring unknown class '{item}' in classes_to_train")
             return resolved
 
@@ -324,9 +323,11 @@ class HarmonizedClassMap:
 
         # Remap dataset_maps values from global IDs → contiguous train IDs
         self.dataset_maps = [
-            {local: self.global_to_train[global_id]
-             for local, global_id in dm.items()
-             if global_id in self.global_to_train}
+            {
+                local: self.global_to_train[global_id]
+                for local, global_id in dm.items()
+                if global_id in self.global_to_train
+            }
             for dm in self.dataset_maps
         ]
 

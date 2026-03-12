@@ -31,12 +31,12 @@ import yaml
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from ultralytics.data.build import HarmonizedClassMap, build_yolo_dataset
 from ultralytics.cfg import get_cfg
+from ultralytics.data.build import HarmonizedClassMap
 from ultralytics.utils import DEFAULT_CFG
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def load_yaml(path):
     with open(path) as f:
@@ -79,6 +79,7 @@ def build_test_dataset(img_dirs, yaml_files, img_size, batch_size, harmonizer):
     }
 
     from ultralytics.data.dataset import YOLODataset
+
     return YOLODataset(
         img_path=img_dirs,
         imgsz=img_size,
@@ -101,6 +102,7 @@ def build_test_dataset(img_dirs, yaml_files, img_size, batch_size, harmonizer):
 
 # ── Log sections ──────────────────────────────────────────────────────────────
 
+
 def log_class_map(hcm, lines):
     lines += [
         "",
@@ -115,9 +117,7 @@ def log_class_map(hcm, lines):
         f"  nc (active)        : {hcm.nc}",
         "",
     ]
-    for i, (src_name, dm, tc) in enumerate(
-        zip(hcm.source_names, hcm.dataset_maps, hcm.per_dataset_train_classes)
-    ):
+    for i, (src_name, dm, tc) in enumerate(zip(hcm.source_names, hcm.dataset_maps, hcm.per_dataset_train_classes)):
         lines.append(f"  [{i}] {src_name}")
         lines.append(f"       classes_to_train : {sorted(tc)}")
         lines.append(f"       local→global remap: {dm}")
@@ -127,7 +127,7 @@ def log_class_map(hcm, lines):
 def log_dataset_stats(dataset, hcm, stats_samples, lines):
     """Scan up to stats_samples images per source and report class distributions."""
     n_sources = len(hcm.dataset_maps)
-    per_src_raw = {i: Counter() for i in range(n_sources)}
+    {i: Counter() for i in range(n_sources)}
     per_src_remapped = {i: Counter() for i in range(n_sources)}
     per_src_seen = {i: 0 for i in range(n_sources)}
 
@@ -174,16 +174,18 @@ def log_source_summary(dataset, hcm, lines):
     lines.append("")
 
 
-# ── Visualisation (optional) ──────────────────────────────────────────────────
+# ── Visualization (optional) ──────────────────────────────────────────────────
+
 
 def visualize_samples(dataset, hcm, num_per_source, out_dir, lines):
     try:
         import matplotlib
+
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
+        import matplotlib.pyplot as plt
     except ImportError:
-        lines.append("[WARN] matplotlib not installed — skipping visualisation")
+        lines.append("[WARN] matplotlib not installed — skipping visualization")
         return
 
     COLORS = ["red", "lime", "cyan", "yellow", "magenta", "orange", "white", "pink"]
@@ -211,7 +213,7 @@ def visualize_samples(dataset, hcm, num_per_source, out_dir, lines):
             continue  # skip backgrounds
 
         img_np = img_tensor.permute(1, 2, 0).cpu().numpy()
-        fig, ax = plt.subplots(figsize=(10, 8))
+        _fig, ax = plt.subplots(figsize=(10, 8))
         ax.imshow(img_np.astype("uint8"))
         ih, iw = img_np.shape[:2]
 
@@ -224,10 +226,15 @@ def visualize_samples(dataset, hcm, num_per_source, out_dir, lines):
             y1 = int((y - h / 2) * ih)
             x2 = int((x + w / 2) * iw)
             y2 = int((y + h / 2) * ih)
-            ax.add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1,
-                                        edgecolor=color, facecolor="none", lw=2))
-            ax.text(x1, max(y1 - 4, 0), f"{cls_id}:{name}", color=color, fontsize=10,
-                    bbox=dict(facecolor="black", alpha=0.4, pad=1, edgecolor="none"))
+            ax.add_patch(plt.Rectangle((x1, y1), x2 - x1, y2 - y1, edgecolor=color, facecolor="none", lw=2))
+            ax.text(
+                x1,
+                max(y1 - 4, 0),
+                f"{cls_id}:{name}",
+                color=color,
+                fontsize=10,
+                bbox=dict(facecolor="black", alpha=0.4, pad=1, edgecolor="none"),
+            )
 
         src_name = hcm.source_names[src_id]
         n = found[src_id]
@@ -251,22 +258,24 @@ def visualize_samples(dataset, hcm, num_per_source, out_dir, lines):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 def parse_args():
     p = argparse.ArgumentParser(description="Test Ultralytics harmonized dataloader (no training)")
-    p.add_argument("--yaml-files", nargs="+", required=True,
-                   help="Per-dataset YAML paths (with names + optional classes_to_train)")
-    p.add_argument("--split", default="train", choices=["train", "val", "test"],
-                   help="Dataset split to inspect")
+    p.add_argument(
+        "--yaml-files", nargs="+", required=True, help="Per-dataset YAML paths (with names + optional classes_to_train)"
+    )
+    p.add_argument("--split", default="train", choices=["train", "val", "test"], help="Dataset split to inspect")
     p.add_argument("--img-size", type=int, default=640)
     p.add_argument("--batch-size", type=int, default=4)
-    p.add_argument("--stats-samples", type=int, default=500,
-                   help="Max images per source to scan for label stats")
-    p.add_argument("--visualize", action="store_true",
-                   help="Save annotated sample images to sample_images/")
-    p.add_argument("--num-vis-per-source", type=int, default=2,
-                   help="How many sample images to save per source (requires --visualize)")
-    p.add_argument("--log-file", default="harmonize_test_log.txt",
-                   help="Path to save the output log")
+    p.add_argument("--stats-samples", type=int, default=500, help="Max images per source to scan for label stats")
+    p.add_argument("--visualize", action="store_true", help="Save annotated sample images to sample_images/")
+    p.add_argument(
+        "--num-vis-per-source",
+        type=int,
+        default=2,
+        help="How many sample images to save per source (requires --visualize)",
+    )
+    p.add_argument("--log-file", default="harmonize_test_log.txt", help="Path to save the output log")
     return p.parse_args()
 
 
@@ -275,10 +284,7 @@ def main():
     lines = ["Ultralytics Harmonized Dataloader Test", ""]
 
     # Resolve YAML paths
-    yaml_files = [
-        str(Path(y).resolve()) if not os.path.isabs(y) else y
-        for y in args.yaml_files
-    ]
+    yaml_files = [str(Path(y).resolve()) if not os.path.isabs(y) else y for y in args.yaml_files]
     yamls = [load_yaml(y) for y in yaml_files]
 
     # Build image directory list for the requested split
