@@ -80,9 +80,33 @@ class DetectionTrainer(BaseTrainer):
             self._harmonizer = HarmonizedClassMap(hyp)
             data["nc"] = self._harmonizer.nc
             data["names"] = {i: n for i, n in enumerate(self._harmonizer.train_names)}
+
+            # Merge train/val image paths from ALL yaml files so every dataset's
+            # images are loaded, not just the primary data= yaml.
+            import yaml, os
+            train_paths, val_paths = [], []
+            for yp in hyp:
+                with open(yp) as f:
+                    yd = yaml.safe_load(f)
+                base = yd.get("path", os.path.dirname(yp))
+                for split, bucket in [("train", train_paths), ("val", val_paths)]:
+                    val = yd.get(split)
+                    if val is None:
+                        continue
+                    entries = val if isinstance(val, list) else [val]
+                    for e in entries:
+                        e = str(e)
+                        bucket.append(e if os.path.isabs(e) else os.path.join(base, e))
+            if train_paths:
+                data["train"] = train_paths if len(train_paths) > 1 else train_paths[0]
+            if val_paths:
+                data["val"] = val_paths if len(val_paths) > 1 else val_paths[0]
+
             LOGGER.info(
                 f"Harmonized {len(hyp)} dataset YAML(s) → "
-                f"nc={data['nc']}, classes={list(data['names'].values())}"
+                f"nc={data['nc']}, classes={list(data['names'].values())}\n"
+                f"  train dirs: {data['train']}\n"
+                f"  val   dirs: {data['val']}"
             )
         else:
             self._harmonizer = None
