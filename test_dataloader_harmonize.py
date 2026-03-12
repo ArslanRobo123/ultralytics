@@ -204,11 +204,17 @@ def visualize_samples(dataset, hcm, num_per_source, out_dir, lines):
             continue
 
         item = dataset[i]
-        img_tensor = item[0]  # CHW uint8
-        labels_tensor = item[1]  # (N, 6): batch_idx | cls | x | y | w | h
+        img_tensor = item["img"]           # CHW uint8 tensor
+        cls_tensor  = item["cls"]          # (N, 1)
+        bbox_tensor = item["bboxes"]       # (N, 4)
 
-        if labels_tensor.shape[0] == 0:
+        if cls_tensor.shape[0] == 0:
             continue  # skip backgrounds
+
+        import torch
+        # Build labels_tensor in (N, 6) format: batch_idx | cls | x | y | w | h
+        batch_idx = torch.zeros(cls_tensor.shape[0], 1)
+        labels_tensor = torch.cat([batch_idx, cls_tensor, bbox_tensor], dim=1)
 
         img_np = img_tensor.permute(1, 2, 0).cpu().numpy()
         fig, ax = plt.subplots(figsize=(10, 8))
