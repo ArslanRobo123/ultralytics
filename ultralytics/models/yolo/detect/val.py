@@ -11,6 +11,7 @@ import torch
 import torch.distributed as dist
 
 from ultralytics.data import build_dataloader, build_yolo_dataset, converter
+from ultralytics.data.build import HarmonizedClassMap
 from ultralytics.engine.validator import BaseValidator
 from ultralytics.utils import LOGGER, RANK, nms, ops
 from ultralytics.utils.checks import check_requirements
@@ -298,7 +299,10 @@ class DetectionValidator(BaseValidator):
         Returns:
             (Dataset): YOLO dataset.
         """
-        return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, stride=self.stride)
+        return build_yolo_dataset(
+            self.args, img_path, batch, self.data, mode=mode, stride=self.stride,
+            harmonizer=getattr(self, "_harmonizer", None),
+        )
 
     def get_dataloader(self, dataset_path: str, batch_size: int) -> torch.utils.data.DataLoader:
         """Construct and return dataloader.
@@ -310,6 +314,39 @@ class DetectionValidator(BaseValidator):
         Returns:
             (torch.utils.data.DataLoader): DataLoader for validation.
         """
+        # Build harmonizer for standalone validation (yolo val ...) if requested.
+        # During training this is never called — the trainer already built the dataloader.
+        if not self.training and not hasattr(self, "_harmonizer"):
+            hyp = getattr(self.args, "harmonize_yaml_paths", None) or (
+                self.data.get("harmonize_yaml_paths") if self.data else None
+            )
+            if isinstance(hyp, str):
+                hyp = [x.strip() for x in hyp.replace(";", ",").split(",") if x.strip()]
+            if hyp:
+                self._harmonizer = HarmonizedClassMap(hyp)
+                self.data["nc"] = self._harmonizer.nc
+                self.data["names"] = {i: n for i, n in enumerate(self._harmonizer.train_names)}
+                import yaml as _yaml
+                val_paths = []
+                for yp in hyp:
+                    with open(yp) as f:
+                        yd = _yaml.safe_load(f)
+                    base = yd.get("path", os.path.dirname(yp))
+                    v = yd.get(self.args.split or "val")
+                    if v is None:
+                        continue
+                    for e in (v if isinstance(v, list) else [v]):
+                        e = str(e)
+                        val_paths.append(e if os.path.isabs(e) else os.path.join(base, e))
+                if val_paths:
+                    dataset_path = val_paths if len(val_paths) > 1 else val_paths[0]
+                LOGGER.info(
+                    f"Harmonized val → nc={self.data['nc']}, "
+                    f"classes={list(self.data['names'].values())}, paths={dataset_path}"
+                )
+            else:
+                self._harmonizer = None
+
         dataset = self.build_dataset(dataset_path, batch=batch_size, mode="val")
         return build_dataloader(
             dataset,

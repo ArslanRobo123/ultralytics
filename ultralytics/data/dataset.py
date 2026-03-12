@@ -207,12 +207,30 @@ class YOLODataset(BaseDataset):
 
         self.label_files = img2label_paths(self.im_files)
         cache_path = Path(self.label_files[0]).parent.with_suffix(".cache")
+
+        # When harmonizer is active, verify_image_label checks class IDs against
+        # len(data["names"]) which is already set to the harmonized nc (e.g. 4).
+        # Original label files still carry the full local class IDs (e.g. 0-6 for
+        # a 7-class dataset), so any ID >= harmonized nc triggers an AssertionError
+        # inside verify_image_label and the whole image label is discarded as corrupt
+        # — even for classes we DO want to train on (e.g. bus=4 in vehicle.yaml).
+        # Fix: temporarily widen data["names"] to cover every original class ID
+        # (len(all_names) >= max local nc across all datasets) while the cache is
+        # built, then restore it so the rest of training uses the correct nc.
+        _orig_names = None
+        if self.harmonizer:
+            _orig_names = self.data.get("names")
+            self.data["names"] = {i: n for i, n in enumerate(self.harmonizer.all_names)}
+
         try:
             cache, exists = load_dataset_cache_file(cache_path), True  # attempt to load a *.cache file
             assert cache["version"] == DATASET_CACHE_VERSION  # matches current version
             assert cache["hash"] == get_hash(self.label_files + self.im_files)  # identical hash
         except (FileNotFoundError, AssertionError, AttributeError, ModuleNotFoundError):
             cache, exists = self.cache_labels(cache_path), False  # run cache ops
+
+        if _orig_names is not None:
+            self.data["names"] = _orig_names  # restore harmonized names after cache build
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop("results")  # found, missing, empty, corrupt, total
