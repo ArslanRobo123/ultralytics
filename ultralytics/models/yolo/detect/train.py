@@ -177,12 +177,16 @@ class DetectionTrainer(BaseTrainer):
         # Save first 100 training images to debug_epoch0/ during epoch 0 only.
         # Each saved JPEG is a mosaic of one full batch with class labels drawn,
         # so you can visually confirm that only the requested classes reach the model.
+        # IMPORTANT: plot_images is @threaded and modifies its labels dict in-place
+        # (converts tensors to numpy). We must pass a cloned copy so the main
+        # training thread's batch tensors are not corrupted.
         if getattr(self, "epoch", -1) == 0 and self._debug_imgs_saved < 100:
             debug_dir = self.save_dir / "debug_epoch0"
             debug_dir.mkdir(parents=True, exist_ok=True)
             batch_num = self._debug_imgs_saved // max(batch["img"].shape[0], 1)
+            debug_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
             plot_images(
-                labels=batch,
+                labels=debug_batch,
                 paths=batch["im_file"],
                 fname=debug_dir / f"batch_{batch_num:04d}.jpg",
                 names=self.data.get("names"),
