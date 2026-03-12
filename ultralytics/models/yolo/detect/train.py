@@ -81,8 +81,7 @@ class DetectionTrainer(BaseTrainer):
             data["nc"] = self._harmonizer.nc
             data["names"] = {i: n for i, n in enumerate(self._harmonizer.train_names)}
             LOGGER.info(
-                f"Harmonized {len(hyp)} dataset YAML(s) → "
-                f"nc={data['nc']}, classes={list(data['names'].values())}"
+                f"Harmonized {len(hyp)} dataset YAML(s) → nc={data['nc']}, classes={list(data['names'].values())}"
             )
         else:
             self._harmonizer = None
@@ -102,8 +101,13 @@ class DetectionTrainer(BaseTrainer):
         """
         gs = max(int(unwrap_model(self.model).stride.max()), 32)
         return build_yolo_dataset(
-            self.args, img_path, batch, self.data,
-            mode=mode, rect=mode == "val", stride=gs,
+            self.args,
+            img_path,
+            batch,
+            self.data,
+            mode=mode,
+            rect=mode == "val",
+            stride=gs,
             harmonizer=getattr(self, "_harmonizer", None),
         )
 
