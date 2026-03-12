@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import glob
 import json
+import os
 from collections import defaultdict
 from itertools import repeat
 from multiprocessing.pool import ThreadPool
@@ -71,12 +73,13 @@ class YOLODataset(BaseDataset):
         >>> dataset.get_labels()
     """
 
-    def __init__(self, *args, data: dict | None = None, task: str = "detect", **kwargs):
+    def __init__(self, *args, data: dict | None = None, task: str = "detect", harmonizer=None, **kwargs):
         """Initialize the YOLODataset.
 
         Args:
             data (dict, optional): Dataset configuration dictionary.
             task (str): Task type, one of 'detect', 'segment', 'pose', or 'obb'.
+            harmonizer (HarmonizedClassMap, optional): Multi-dataset class harmonizer.
             *args (Any): Additional positional arguments for the parent class.
             **kwargs (Any): Additional keyword arguments for the parent class.
         """
@@ -84,8 +87,43 @@ class YOLODataset(BaseDataset):
         self.use_keypoints = task == "pose"
         self.use_obb = task == "obb"
         self.data = data
+        self.harmonizer = harmonizer  # must be set before super().__init__() which calls get_img_files + get_labels
         assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
         super().__init__(*args, channels=self.data.get("channels", 3), **kwargs)
+
+    def get_img_files(self, img_path):
+        """Read image files, tracking source dataset index per image when harmonizer is active.
+
+        When a harmonizer is present the method records which source dataset (0-based index
+        into img_path list) each image file belongs to and stores it in self.source_ids.
+        Falls back to BaseDataset.get_img_files when no harmonizer is set.
+        """
+        if not self.harmonizer:
+            return super().get_img_files(img_path)
+
+        from ultralytics.data.utils import FORMATS_HELP_MSG, IMG_FORMATS
+
+        f, source_ids = [], []
+        for src_id, p in enumerate(img_path if isinstance(img_path, list) else [img_path]):
+            p = Path(p)
+            if p.is_dir():
+                files = sorted(glob.glob(str(p / "**" / "*.*"), recursive=True))
+            elif p.is_file():
+                with open(p, encoding="utf-8") as t:
+                    lines = t.read().strip().splitlines()
+                parent = str(p.parent) + os.sep
+                files = [x.replace("./", parent) if x.startswith("./") else x for x in lines]
+            else:
+                raise FileNotFoundError(f"{self.prefix}{p} does not exist")
+            files = [x.replace("/", os.sep) for x in files if x.rpartition(".")[-1].lower() in IMG_FORMATS]
+            f.extend(files)
+            source_ids.extend([src_id] * len(files))
+
+        pairs = sorted(zip(f, source_ids), key=lambda x: x[0])
+        self.source_ids = [x[1] for x in pairs]
+        im_files = [x[0] for x in pairs]
+        assert im_files, f"{self.prefix}No images found in {img_path}. {FORMATS_HELP_MSG}"
+        return im_files
 
     def cache_labels(self, path: Path = Path("./labels.cache")) -> dict:
         """Cache dataset labels, check images and read shapes.
@@ -158,10 +196,15 @@ class YOLODataset(BaseDataset):
         """Return list of label dictionaries for YOLO training.
 
         This method loads labels from disk or cache, verifies their integrity, and prepares them for training.
+        When a harmonizer is active, class IDs are remapped from local dataset IDs to contiguous global IDs
+        and boxes whose class is not in the active set are dropped.
 
         Returns:
             (list[dict]): List of label dictionaries, each containing information about an image and its annotations.
         """
+        # Snapshot source_ids before im_files gets overwritten by cache load below
+        source_map = dict(zip(self.im_files, getattr(self, "source_ids", [])))
+
         self.label_files = img2label_paths(self.im_files)
         cache_path = Path(self.label_files[0]).parent.with_suffix(".cache")
         try:
@@ -187,6 +230,27 @@ class YOLODataset(BaseDataset):
                 f"No valid images found in {cache_path}. Images with incorrectly formatted labels are ignored. {HELP_URL}"
             )
         self.im_files = [lb["im_file"] for lb in labels]  # update im_files
+
+        # Apply multi-dataset class harmonization: remap local IDs → contiguous global IDs, drop unknown classes
+        if self.harmonizer and source_map:
+            for lb in labels:
+                src_id = source_map.get(lb["im_file"], 0)
+                remap = self.harmonizer.dataset_maps[src_id]
+                if len(lb["cls"]):
+                    cls = lb["cls"].flatten().astype(int)
+                    mask = np.array([c in remap for c in cls], dtype=bool)
+                    lb["cls"] = (
+                        np.array([[remap[c]] for c in cls[mask]], dtype=np.float32)
+                        if mask.any()
+                        else np.zeros((0, 1), dtype=np.float32)
+                    )
+                    lb["bboxes"] = lb["bboxes"][mask]
+                    if lb.get("segments"):
+                        lb["segments"] = [s for s, m in zip(lb["segments"], mask) if m]
+                    if lb.get("keypoints") is not None and len(lb["keypoints"]):
+                        lb["keypoints"] = lb["keypoints"][mask]
+            # Rebuild source_ids to match the (possibly filtered) labels list
+            self.source_ids = [source_map.get(lb["im_file"], 0) for lb in labels]
 
         # Check if the dataset is all boxes or all segments
         lengths = ((len(lb["cls"]), len(lb["bboxes"]), len(lb["segments"])) for lb in labels)

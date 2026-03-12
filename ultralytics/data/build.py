@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import yaml
+
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -221,6 +223,114 @@ def seed_worker(worker_id: int) -> None:
     random.seed(worker_seed)
 
 
+class HarmonizedClassMap:
+    """Harmonize class indices across multiple datasets with per-dataset class filtering.
+
+    Accepts a list of per-dataset YAML paths, each containing a 'names' field and an
+    optional 'classes_to_train' / 'classes_to_train_on' field.  Builds a unified global
+    class list and per-dataset local→global remap dicts so that label class IDs from
+    different datasets can be remapped to a single contiguous ID space at load time.
+
+    Attributes:
+        all_names (list[str]): All unique class names seen across every dataset YAML.
+        name_to_global (dict[str, int]): Maps class name → global ID (first-seen order).
+        dataset_maps (list[dict[int, int]]): Per-dataset {local_id: global_contiguous_id}.
+        classes_to_train (set[str]): Union of all classes selected for training.
+        per_dataset_train_classes (list[set[str]]): Selected classes per dataset.
+        train_indices (list[int]): Global IDs that are active for training.
+        train_names (list[str]): Class names corresponding to train_indices.
+        global_to_train (dict[int, int]): Maps global_id → contiguous train_id.
+        nc (int): Number of active training classes.
+        source_names (list[str]): Stem of each YAML path (used for logging).
+        yaml_paths (list[str]): Absolute YAML paths as strings.
+    """
+
+    def __init__(self, yaml_paths):
+        """Build harmonized class map from a list of per-dataset YAML file paths."""
+        if isinstance(yaml_paths, (str, Path)):
+            yaml_paths = [str(yaml_paths)]
+        if not yaml_paths:
+            raise ValueError("harmonize_yaml_paths is empty")
+
+        self.all_names = []
+        self.name_to_global = {}
+        self.dataset_maps = []
+        self.classes_to_train = set()
+        self.per_dataset_train_classes = []
+        self.yaml_paths = [str(x) for x in yaml_paths]
+        self.source_names = []
+
+        def _sorted_names(names_obj):
+            if isinstance(names_obj, dict):
+                try:
+                    keys = sorted(names_obj.keys(), key=lambda k: int(k))
+                except Exception:
+                    keys = sorted(names_obj.keys())
+                return [str(names_obj[k]).strip() for k in keys]
+            return [str(x).strip() for x in names_obj]
+
+        def _resolve_train_classes(ydata, names):
+            raw = ydata.get("classes_to_train", ydata.get("classes_to_train_on", None))
+            if raw is None:
+                return set(names)
+            if isinstance(raw, (str, int)):
+                raw = [raw]
+            resolved = set()
+            for item in raw:
+                if isinstance(item, int):
+                    if 0 <= item < len(names):
+                        resolved.add(names[item])
+                    continue
+                s = str(item).strip()
+                if s in names:
+                    resolved.add(s)
+                    continue
+                if s.isdigit():
+                    idx = int(s)
+                    if 0 <= idx < len(names):
+                        resolved.add(names[idx])
+                        continue
+                from ultralytics.utils import LOGGER as _L
+                _L.warning(f"WARNING ⚠️ Ignoring unknown class '{item}' in classes_to_train")
+            return resolved
+
+        for ypath in yaml_paths:
+            with open(ypath) as f:
+                ydata = yaml.safe_load(f)
+            if "names" not in ydata:
+                raise KeyError(f"YAML missing 'names': {ypath}")
+            names = _sorted_names(ydata["names"])
+            train_classes = _resolve_train_classes(ydata, names)
+
+            self.source_names.append(Path(ypath).stem)
+            self.per_dataset_train_classes.append(train_classes)
+            self.classes_to_train.update(train_classes)
+
+            local_to_global = {}
+            for i, cname in enumerate(names):
+                if cname not in self.name_to_global:
+                    self.name_to_global[cname] = len(self.all_names)
+                    self.all_names.append(cname)
+                if cname in train_classes:
+                    local_to_global[i] = self.name_to_global[cname]
+            self.dataset_maps.append(local_to_global)
+
+        self.train_indices = [i for i, cname in enumerate(self.all_names) if cname in self.classes_to_train]
+        if not self.train_indices:
+            raise ValueError("No classes selected for training after harmonization. Check classes_to_train values.")
+        self.nc = len(self.train_indices)
+        self.train_names = [self.all_names[i] for i in self.train_indices]
+        self.global_to_train = {g: t for t, g in enumerate(self.train_indices)}
+
+        # Remap dataset_maps values from global IDs → contiguous train IDs
+        self.dataset_maps = [
+            {local: self.global_to_train[global_id]
+             for local, global_id in dm.items()
+             if global_id in self.global_to_train}
+            for dm in self.dataset_maps
+        ]
+
+
 def build_yolo_dataset(
     cfg: IterableSimpleNamespace,
     img_path: str,
@@ -230,6 +340,7 @@ def build_yolo_dataset(
     rect: bool = False,
     stride: int = 32,
     multi_modal: bool = False,
+    harmonizer: HarmonizedClassMap | None = None,
 ) -> Dataset:
     """Build and return a YOLO dataset based on configuration parameters."""
     dataset = YOLOMultiModalDataset if multi_modal else YOLODataset
@@ -249,6 +360,7 @@ def build_yolo_dataset(
         classes=cfg.classes,
         data=data,
         fraction=cfg.fraction if mode == "train" else 1.0,
+        harmonizer=harmonizer,
     )
 
 

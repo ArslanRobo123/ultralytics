@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 
 from ultralytics.data import build_dataloader, build_yolo_dataset
+from ultralytics.data.build import HarmonizedClassMap
 from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import DetectionModel
@@ -62,6 +63,32 @@ class DetectionTrainer(BaseTrainer):
         """
         super().__init__(cfg, overrides, _callbacks)
 
+    def get_dataset(self):
+        """Get train/val datasets, building a HarmonizedClassMap when harmonize_yaml_paths is set.
+
+        Overrides BaseTrainer.get_dataset() to detect the harmonize_yaml_paths argument (from
+        CLI, Python API, or the data YAML itself), construct a HarmonizedClassMap, and update
+        self.data['nc'] / self.data['names'] so the model head is sized correctly.
+        """
+        data = super().get_dataset()
+
+        hyp = getattr(self.args, "harmonize_yaml_paths", None) or data.get("harmonize_yaml_paths", None)
+        if isinstance(hyp, str):
+            hyp = [x.strip() for x in hyp.replace(";", ",").split(",") if x.strip()]
+
+        if hyp:
+            self._harmonizer = HarmonizedClassMap(hyp)
+            data["nc"] = self._harmonizer.nc
+            data["names"] = {i: n for i, n in enumerate(self._harmonizer.train_names)}
+            LOGGER.info(
+                f"Harmonized {len(hyp)} dataset YAML(s) → "
+                f"nc={data['nc']}, classes={list(data['names'].values())}"
+            )
+        else:
+            self._harmonizer = None
+
+        return data
+
     def build_dataset(self, img_path: str, mode: str = "train", batch: int | None = None):
         """Build YOLO Dataset for training or validation.
 
@@ -74,7 +101,11 @@ class DetectionTrainer(BaseTrainer):
             (Dataset): YOLO dataset object configured for the specified mode.
         """
         gs = max(int(unwrap_model(self.model).stride.max()), 32)
-        return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
+        return build_yolo_dataset(
+            self.args, img_path, batch, self.data,
+            mode=mode, rect=mode == "val", stride=gs,
+            harmonizer=getattr(self, "_harmonizer", None),
+        )
 
     def get_dataloader(self, dataset_path: str, batch_size: int = 16, rank: int = 0, mode: str = "train"):
         """Construct and return dataloader for the specified mode.
