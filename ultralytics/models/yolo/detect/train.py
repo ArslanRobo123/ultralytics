@@ -62,6 +62,7 @@ class DetectionTrainer(BaseTrainer):
             _callbacks (list, optional): List of callback functions to be executed during training.
         """
         super().__init__(cfg, overrides, _callbacks)
+        self._debug_imgs_saved = 0  # counter for epoch-0 dataloader verification images
 
     def get_dataset(self):
         """Get train/val datasets, building a HarmonizedClassMap when harmonize_yaml_paths is set.
@@ -172,6 +173,23 @@ class DetectionTrainer(BaseTrainer):
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float() / 255
+
+        # Save first 100 training images to debug_epoch0/ during epoch 0 only.
+        # Each saved JPEG is a mosaic of one full batch with class labels drawn,
+        # so you can visually confirm that only the requested classes reach the model.
+        if getattr(self, "epoch", -1) == 0 and self._debug_imgs_saved < 100:
+            debug_dir = self.save_dir / "debug_epoch0"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            batch_num = self._debug_imgs_saved // max(batch["img"].shape[0], 1)
+            plot_images(
+                labels=batch,
+                paths=batch["im_file"],
+                fname=debug_dir / f"batch_{batch_num:04d}.jpg",
+                names=self.data.get("names"),
+                on_plot=self.on_plot,
+            )
+            self._debug_imgs_saved += batch["img"].shape[0]
+
         if self.args.multi_scale > 0.0:
             imgs = batch["img"]
             sz = (
