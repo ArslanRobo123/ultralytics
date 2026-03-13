@@ -210,6 +210,8 @@ class DetectionTrainer(BaseTrainer):
 
         debug_dir = self.save_dir / "debug_epoch0"
         debug_dir.mkdir(parents=True, exist_ok=True)
+        if self._debug_imgs_saved == 0:
+            LOGGER.info(f"Saving epoch-0 debug images to: {debug_dir}")
 
         imgs       = batch["img"]                    # (B, C, H, W) float 0-1
         cls_all    = batch["cls"].cpu().long()       # (N, 1)
@@ -227,7 +229,7 @@ class DetectionTrainer(BaseTrainer):
             h, w    = img_bgr.shape[:2]
 
             # Draw every box that belongs to this image
-            mask    = (bidx_all == i).squeeze()
+            mask    = (bidx_all == i)  # shape (N,) — no squeeze, avoids scalar when N=1
             cls_ids = cls_all[mask].flatten().tolist()
             boxes   = bboxes_all[mask]               # (k, 4)
 
@@ -247,7 +249,9 @@ class DetectionTrainer(BaseTrainer):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
 
             out_path = debug_dir / f"img_{self._debug_imgs_saved:04d}.jpg"
-            cv2.imwrite(str(out_path), img_bgr)
+            ok = cv2.imwrite(str(out_path), img_bgr)
+            if not ok:
+                LOGGER.warning(f"cv2.imwrite failed for {out_path}")
             self._debug_imgs_saved += 1
 
     def set_model_attributes(self):
