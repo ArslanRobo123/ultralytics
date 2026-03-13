@@ -174,25 +174,11 @@ class DetectionTrainer(BaseTrainer):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float() / 255
 
-        # Save first 100 training images to debug_epoch0/ during epoch 0 only.
-        # Each saved JPEG is a mosaic of one full batch with class labels drawn,
-        # so you can visually confirm that only the requested classes reach the model.
-        # IMPORTANT: plot_images is @threaded and modifies its labels dict in-place
-        # (converts tensors to numpy). We must pass a cloned copy so the main
-        # training thread's batch tensors are not corrupted.
+        # Save first 100 training images individually to debug_epoch0/ during epoch 0.
+        # These are the exact images (after augmentation + preprocessing) that enter
+        # the model, with classID:ClassName labels drawn on every bounding box.
         if getattr(self, "epoch", -1) == 0 and self._debug_imgs_saved < 100:
-            debug_dir = self.save_dir / "debug_epoch0"
-            debug_dir.mkdir(parents=True, exist_ok=True)
-            batch_num = self._debug_imgs_saved // max(batch["img"].shape[0], 1)
-            debug_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-            plot_images(
-                labels=debug_batch,
-                paths=batch["im_file"],
-                fname=debug_dir / f"batch_{batch_num:04d}.jpg",
-                names=self.data.get("names"),
-                on_plot=self.on_plot,
-            )
-            self._debug_imgs_saved += batch["img"].shape[0]
+            self._save_debug_images_individually(batch)
 
         if self.args.multi_scale > 0.0:
             imgs = batch["img"]
@@ -212,6 +198,57 @@ class DetectionTrainer(BaseTrainer):
                 imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
             batch["img"] = imgs
         return batch
+
+    def _save_debug_images_individually(self, batch: dict) -> None:
+        """Save individual training images with drawn boxes to debug_epoch0/ during epoch 0.
+
+        Each image is saved as a separate JPEG showing the exact pixel data the model
+        receives, with every bounding box labelled as 'classID:ClassName'.
+        Saves until self._debug_imgs_saved reaches 100, then stops.
+        """
+        import cv2
+
+        debug_dir = self.save_dir / "debug_epoch0"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        imgs       = batch["img"]                    # (B, C, H, W) float 0-1
+        cls_all    = batch["cls"].cpu().long()       # (N, 1)
+        bboxes_all = batch["bboxes"].cpu()           # (N, 4) normalised xywh
+        bidx_all   = batch["batch_idx"].cpu().long() # (N,)
+        names      = self.data.get("names", {})
+
+        for i in range(imgs.shape[0]):
+            if self._debug_imgs_saved >= 100:
+                break
+
+            # Convert CHW float 0-1  →  HWC uint8 BGR
+            img_np  = (imgs[i].cpu().permute(1, 2, 0).numpy() * 255).clip(0, 255).astype(np.uint8)
+            img_bgr = img_np[:, :, ::-1].copy()
+            h, w    = img_bgr.shape[:2]
+
+            # Draw every box that belongs to this image
+            mask    = (bidx_all == i).squeeze()
+            cls_ids = cls_all[mask].flatten().tolist()
+            boxes   = bboxes_all[mask]               # (k, 4)
+
+            for cls_id, box in zip(cls_ids, boxes.tolist()):
+                cx, cy, bw, bh = box
+                x1 = max(int((cx - bw / 2) * w), 0)
+                y1 = max(int((cy - bh / 2) * h), 0)
+                x2 = min(int((cx + bw / 2) * w), w - 1)
+                y2 = min(int((cy + bh / 2) * h), h - 1)
+                cls_name = names.get(int(cls_id), str(int(cls_id)))
+                label    = f"{int(cls_id)}:{cls_name}"
+
+                cv2.rectangle(img_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+                cv2.rectangle(img_bgr, (x1, y1 - th - 6), (x1 + tw + 2, y1), (0, 255, 0), -1)
+                cv2.putText(img_bgr, label, (x1 + 1, y1 - 3),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
+
+            out_path = debug_dir / f"img_{self._debug_imgs_saved:04d}.jpg"
+            cv2.imwrite(str(out_path), img_bgr)
+            self._debug_imgs_saved += 1
 
     def set_model_attributes(self):
         """Set model attributes based on dataset information."""
