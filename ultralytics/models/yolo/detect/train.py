@@ -151,6 +151,13 @@ class DetectionTrainer(BaseTrainer):
         if getattr(dataset, "rect", False) and shuffle and not np.all(dataset.batch_shapes == dataset.batch_shapes[0]):
             LOGGER.warning("'rect=True' is incompatible with DataLoader shuffle, setting shuffle=False")
             shuffle = False
+        # Enable balanced sampling for train split when harmonizer is active,
+        # so each dataset contributes equally per epoch regardless of its size.
+        balance = (
+            mode == "train"
+            and getattr(self, "_harmonizer", None) is not None
+            and getattr(self.args, "balance_datasets", True)
+        )
         return build_dataloader(
             dataset,
             batch=batch_size,
@@ -158,6 +165,7 @@ class DetectionTrainer(BaseTrainer):
             shuffle=shuffle,
             rank=rank,
             drop_last=self.args.compile and mode == "train",
+            balance_datasets=balance,
         )
 
     def preprocess_batch(self, batch: dict) -> dict:

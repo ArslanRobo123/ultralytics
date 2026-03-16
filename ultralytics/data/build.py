@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from PIL import Image
-from torch.utils.data import Dataset, dataloader, distributed
+from torch.utils.data import Dataset, WeightedRandomSampler, dataloader, distributed
 
 from ultralytics.cfg import IterableSimpleNamespace
 from ultralytics.data.dataset import GroundingDataset, YOLODataset, YOLOMultiModalDataset
@@ -31,7 +31,7 @@ from ultralytics.data.loaders import (
     autocast_list,
 )
 from ultralytics.data.utils import IMG_FORMATS, VID_FORMATS
-from ultralytics.utils import RANK, colorstr
+from ultralytics.utils import LOGGER, RANK, colorstr
 from ultralytics.utils.checks import check_file
 from ultralytics.utils.torch_utils import TORCH_2_0
 
@@ -403,6 +403,7 @@ def build_dataloader(
     rank: int = -1,
     drop_last: bool = False,
     pin_memory: bool = True,
+    balance_datasets: bool = False,
 ) -> InfiniteDataLoader:
     """Create and return an InfiniteDataLoader for training or validation.
 
@@ -426,13 +427,27 @@ def build_dataloader(
     batch = min(batch, len(dataset))
     nd = torch.cuda.device_count()  # number of CUDA devices
     nw = min(os.cpu_count() // max(nd, 1), workers)  # number of workers
-    sampler = (
-        None
-        if rank == -1
-        else distributed.DistributedSampler(dataset, shuffle=shuffle)
-        if shuffle
-        else ContiguousDistributedSampler(dataset)
-    )
+
+    # Balanced dataset sampling: oversample smaller datasets so each source
+    # contributes equally per epoch regardless of its size.
+    if balance_datasets and rank == -1 and hasattr(dataset, "source_ids") and dataset.source_ids:
+        from collections import Counter
+        counts = Counter(dataset.source_ids)
+        weights = torch.tensor([1.0 / counts[s] for s in dataset.source_ids], dtype=torch.float)
+        sampler = WeightedRandomSampler(weights, num_samples=len(dataset), replacement=True)
+        shuffle = False  # sampler handles ordering
+        LOGGER.info(
+            f"Balanced dataset sampling enabled — source counts: "
+            + ", ".join(f"src{k}:{v}" for k, v in sorted(counts.items()))
+        )
+    else:
+        sampler = (
+            None
+            if rank == -1
+            else distributed.DistributedSampler(dataset, shuffle=shuffle)
+            if shuffle
+            else ContiguousDistributedSampler(dataset)
+        )
     generator = torch.Generator()
     generator.manual_seed(6148914691236517205 + RANK)
     return InfiniteDataLoader(
