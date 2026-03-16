@@ -212,6 +212,8 @@ PYTHONPATH=/path/to/ultralytics yolo detect train \
 | `exist_ok=True` | Reuse existing run folder instead of creating `name2`, `name3` etc. |
 | `mosaic=0.0` | Disable mosaic augmentation (useful for debugging individual images) |
 
+> **Note:** `harmonize_yaml_paths` is optional. If you omit it, the model trains normally using only the single dataset defined in `data=` — no harmonization or class remapping is applied. This means the fork is fully backwards-compatible with standard single-dataset Ultralytics training.
+
 **What happens automatically:**
 - Model head is resized to `nc` = number of active classes across all datasets
 - Train/val image paths from all YAMLs are merged
