@@ -15,6 +15,7 @@ This is a custom fork of [Ultralytics](https://github.com/ultralytics/ultralytic
 | `test_dataloader_harmonize.py` | Standalone script to verify class remapping and data loading before training |
 | Epoch-0 debug images | First 100 training images saved individually with `classID:ClassName` boxes drawn |
 | `sample_images/` | Annotated sample images saved by the dataloader test script per dataset source |
+| Balanced dataset sampling | Smaller datasets are automatically oversampled via `WeightedRandomSampler` so each source contributes equally per epoch. Controlled by `balance_datasets=True/False` |
 
 ---
 
@@ -26,7 +27,7 @@ This is a custom fork of [Ultralytics](https://github.com/ultralytics/ultralytic
 | `ultralytics/data/dataset.py` | `YOLODataset` stores harmonizer, tracks source IDs, applies remapping in `get_labels()` |
 | `ultralytics/models/yolo/detect/train.py` | `get_dataset()` builds harmonizer; `preprocess_batch()` saves debug images |
 | `ultralytics/models/yolo/detect/val.py` | `build_dataset()` and `get_dataloader()` pass harmonizer for standalone val |
-| `ultralytics/cfg/default.yaml` | Added `harmonize_yaml_paths: ""` config key |
+| `ultralytics/cfg/default.yaml` | Added `harmonize_yaml_paths: ""` and `balance_datasets: True` config keys |
 
 ---
 
@@ -211,6 +212,7 @@ PYTHONPATH=/path/to/ultralytics yolo detect train \
 | `name` | Sub-folder name inside project |
 | `exist_ok=True` | Reuse existing run folder instead of creating `name2`, `name3` etc. |
 | `mosaic=0.0` | Disable mosaic augmentation (useful for debugging individual images) |
+| `balance_datasets=False` | Disable balanced sampling (enabled by default when harmonizer is active) |
 
 > **Note:** `harmonize_yaml_paths` is optional. If you omit it, the model trains normally using only the single dataset defined in `data=` — no harmonization or class remapping is applied. This means the fork is fully backwards-compatible with standard single-dataset Ultralytics training.
 
@@ -219,6 +221,7 @@ PYTHONPATH=/path/to/ultralytics yolo detect train \
 - Train/val image paths from all YAMLs are merged
 - Class IDs remapped in memory — disk files untouched
 - First 100 training images saved to `{project}/{name}/debug_epoch0/` with boxes drawn
+- **Balanced dataset sampling** is applied automatically — smaller datasets are oversampled so each source contributes equally per epoch. You will see this confirmed in the training log: `Balanced dataset sampling enabled — source counts: src0:6064, src1:18601`
 
 **Supported models:**
 
