@@ -300,7 +300,12 @@ class DetectionValidator(BaseValidator):
             (Dataset): YOLO dataset.
         """
         return build_yolo_dataset(
-            self.args, img_path, batch, self.data, mode=mode, stride=self.stride,
+            self.args,
+            img_path,
+            batch,
+            self.data,
+            mode=mode,
+            stride=self.stride,
             harmonizer=getattr(self, "_harmonizer", None),
         )
 
@@ -327,6 +332,7 @@ class DetectionValidator(BaseValidator):
                 self.data["nc"] = self._harmonizer.nc
                 self.data["names"] = {i: n for i, n in enumerate(self._harmonizer.train_names)}
                 import yaml as _yaml
+
                 val_paths = []
                 for yp in hyp:
                     with open(yp) as f:
@@ -335,7 +341,7 @@ class DetectionValidator(BaseValidator):
                     v = yd.get(self.args.split or "val")
                     if v is None:
                         continue
-                    for e in (v if isinstance(v, list) else [v]):
+                    for e in v if isinstance(v, list) else [v]:
                         e = str(e)
                         val_paths.append(e if os.path.isabs(e) else os.path.join(base, e))
                 if val_paths:
