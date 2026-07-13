@@ -84,7 +84,10 @@ class DetectionTrainer(BaseTrainer):
 
             # Merge train/val image paths from ALL yaml files so every dataset's
             # images are loaded, not just the primary data= yaml.
-            import yaml, os
+            import os
+
+            import yaml
+
             train_paths, val_paths = [], []
             for yp in hyp:
                 with open(yp) as f:
@@ -127,8 +130,13 @@ class DetectionTrainer(BaseTrainer):
         """
         gs = max(int(unwrap_model(self.model).stride.max()), 32)
         return build_yolo_dataset(
-            self.args, img_path, batch, self.data,
-            mode=mode, rect=mode == "val", stride=gs,
+            self.args,
+            img_path,
+            batch,
+            self.data,
+            mode=mode,
+            rect=mode == "val",
+            stride=gs,
             harmonizer=getattr(self, "_harmonizer", None),
         )
 
@@ -203,7 +211,7 @@ class DetectionTrainer(BaseTrainer):
         """Save individual training images with drawn boxes to debug_epoch0/ during epoch 0.
 
         Each image is saved as a separate JPEG showing the exact pixel data the model
-        receives, with every bounding box labelled as 'classID:ClassName'.
+        receives, with every bounding box labeled as 'classID:ClassName'.
         Saves until self._debug_imgs_saved reaches 100, then stops.
         """
         import cv2
@@ -213,25 +221,25 @@ class DetectionTrainer(BaseTrainer):
         if self._debug_imgs_saved == 0:
             LOGGER.info(f"Saving epoch-0 debug images to: {debug_dir}")
 
-        imgs       = batch["img"]                    # (B, C, H, W) float 0-1
-        cls_all    = batch["cls"].cpu().long()       # (N, 1)
-        bboxes_all = batch["bboxes"].cpu()           # (N, 4) normalised xywh
-        bidx_all   = batch["batch_idx"].cpu().long() # (N,)
-        names      = self.data.get("names", {})
+        imgs = batch["img"]  # (B, C, H, W) float 0-1
+        cls_all = batch["cls"].cpu().long()  # (N, 1)
+        bboxes_all = batch["bboxes"].cpu()  # (N, 4) normalized xywh
+        bidx_all = batch["batch_idx"].cpu().long()  # (N,)
+        names = self.data.get("names", {})
 
         for i in range(imgs.shape[0]):
             if self._debug_imgs_saved >= 100:
                 break
 
             # Convert CHW float 0-1  →  HWC uint8 BGR
-            img_np  = (imgs[i].cpu().permute(1, 2, 0).numpy() * 255).clip(0, 255).astype(np.uint8)
+            img_np = (imgs[i].cpu().permute(1, 2, 0).numpy() * 255).clip(0, 255).astype(np.uint8)
             img_bgr = img_np[:, :, ::-1].copy()
-            h, w    = img_bgr.shape[:2]
+            h, w = img_bgr.shape[:2]
 
             # Draw every box that belongs to this image
-            mask    = (bidx_all == i)  # shape (N,) — no squeeze, avoids scalar when N=1
+            mask = bidx_all == i  # shape (N,) — no squeeze, avoids scalar when N=1
             cls_ids = cls_all[mask].flatten().tolist()
-            boxes   = bboxes_all[mask]               # (k, 4)
+            boxes = bboxes_all[mask]  # (k, 4)
 
             for cls_id, box in zip(cls_ids, boxes.tolist()):
                 cx, cy, bw, bh = box
@@ -240,13 +248,12 @@ class DetectionTrainer(BaseTrainer):
                 x2 = min(int((cx + bw / 2) * w), w - 1)
                 y2 = min(int((cy + bh / 2) * h), h - 1)
                 cls_name = names.get(int(cls_id), str(int(cls_id)))
-                label    = f"{int(cls_id)}:{cls_name}"
+                label = f"{int(cls_id)}:{cls_name}"
 
                 cv2.rectangle(img_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
                 cv2.rectangle(img_bgr, (x1, y1 - th - 6), (x1 + tw + 2, y1), (0, 255, 0), -1)
-                cv2.putText(img_bgr, label, (x1 + 1, y1 - 3),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
+                cv2.putText(img_bgr, label, (x1 + 1, y1 - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
 
             out_path = debug_dir / f"img_{self._debug_imgs_saved:04d}.jpg"
             ok = cv2.imwrite(str(out_path), img_bgr)
