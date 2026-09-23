@@ -14,8 +14,8 @@ path: /usr/src/app/datasets/dataset_a
 
 # Splits (relative to path)
 train: images/train
-val:   images/val
-test:  images/test          # optional
+val: images/val
+test: images/test # optional
 
 # Number of classes in THIS dataset (all local classes)
 nc: 7
@@ -44,7 +44,7 @@ classes_to_train:
 path: /usr/src/app/datasets/dataset_b
 
 train: images/train
-val:   images/val
+val: images/val
 
 nc: 2
 
@@ -57,6 +57,7 @@ classes_to_train:
 ```
 
 **Rules:**
+
 - `classes_to_train` values must exactly match strings in `names`
 - Omit `classes_to_train` to use all classes from that dataset
 - Class IDs in `.txt` files are always local to their dataset — the harmonizer handles remapping automatically
@@ -99,16 +100,17 @@ PYTHONPATH=/usr/src/app python test_dataloader_harmonize.py \
 
 **Arguments:**
 
-| Argument | Default | Description |
-|---|---|---|
-| `--yaml-files` | required | Space-separated paths to per-dataset YAMLs |
-| `--split` | `train` | Which split to inspect: `train`, `val`, `test` |
-| `--stats-samples` | `500` | Max images per source to scan for label counts |
-| `--visualize` | off | Save annotated sample images to `sample_images/` |
-| `--num-vis-per-source` | `2` | How many sample images to save per dataset |
-| `--log-file` | `harmonize_test_log.txt` | Path to save the output log |
+| Argument               | Default                  | Description                                      |
+| ---------------------- | ------------------------ | ------------------------------------------------ |
+| `--yaml-files`         | required                 | Space-separated paths to per-dataset YAMLs       |
+| `--split`              | `train`                  | Which split to inspect: `train`, `val`, `test`   |
+| `--stats-samples`      | `500`                    | Max images per source to scan for label counts   |
+| `--visualize`          | off                      | Save annotated sample images to `sample_images/` |
+| `--num-vis-per-source` | `2`                      | How many sample images to save per dataset       |
+| `--log-file`           | `harmonize_test_log.txt` | Path to save the output log                      |
 
 **Output log shows:**
+
 - Unified class map (local → global → train ID remapping)
 - Image count per dataset
 - Class annotation counts per dataset
@@ -132,18 +134,19 @@ PYTHONPATH=/usr/src/app yolo detect train \
 
 **Key arguments:**
 
-| Argument | Description |
-|---|---|
-| `model` | Pretrained weights or architecture. `yolo11n.pt` = lightest, auto-downloads |
-| `data` | Any one of your dataset YAMLs (used as placeholder; paths are overridden by harmonizer) |
-| `harmonize_yaml_paths` | Comma-separated list of ALL dataset YAMLs. This activates harmonization |
-| `epochs` | Number of training epochs |
-| `batch` | Batch size |
-| `imgsz` | Input image size |
-| `project` | Root folder for saving runs |
-| `name` | Sub-folder name inside project |
+| Argument               | Description                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `model`                | Pretrained weights or architecture. `yolo11n.pt` = lightest, auto-downloads             |
+| `data`                 | Any one of your dataset YAMLs (used as placeholder; paths are overridden by harmonizer) |
+| `harmonize_yaml_paths` | Comma-separated list of ALL dataset YAMLs. This activates harmonization                 |
+| `epochs`               | Number of training epochs                                                               |
+| `batch`                | Batch size                                                                              |
+| `imgsz`                | Input image size                                                                        |
+| `project`              | Root folder for saving runs                                                             |
+| `name`                 | Sub-folder name inside project                                                          |
 
 **What happens automatically:**
+
 - Model head is resized to `nc` = number of active classes
 - Train/val image paths from all YAMLs are merged
 - Class IDs are remapped in memory — label `.txt` files on disk are never modified
@@ -151,13 +154,13 @@ PYTHONPATH=/usr/src/app yolo detect train \
 
 **Available models (lightest → heaviest):**
 
-| Model | Params | Notes |
-|---|---|---|
-| `yolo11n.pt` | 2.6M | Nano — fastest |
-| `yolo11s.pt` | 9.4M | Small |
-| `yolo11m.pt` | 20M | Medium |
-| `yolo11l.pt` | 25M | Large |
-| `yolo11x.pt` | 56M | Extra-large |
+| Model        | Params | Notes          |
+| ------------ | ------ | -------------- |
+| `yolo11n.pt` | 2.6M   | Nano — fastest |
+| `yolo11s.pt` | 9.4M   | Small          |
+| `yolo11m.pt` | 20M    | Medium         |
+| `yolo11l.pt` | 25M    | Large          |
+| `yolo11x.pt` | 56M    | Extra-large    |
 
 ---
 
