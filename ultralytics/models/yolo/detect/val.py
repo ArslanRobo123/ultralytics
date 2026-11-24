@@ -86,7 +86,7 @@ class DetectionValidator(BaseValidator):
         self.is_coco = (
             isinstance(val, str)
             and "coco" in val
-            and (val.endswith(f"{os.sep}val2017.txt") or val.endswith(f"{os.sep}test-dev2017.txt"))
+            and (val.endswith((f"{os.sep}val2017.txt", f"{os.sep}test-dev2017.txt")))
         )  # is COCO
         self.is_lvis = isinstance(val, str) and "lvis" in val and not self.is_coco  # is LVIS
         self.class_map = converter.coco80_to_coco91_class() if self.is_coco else list(range(1, len(model.names) + 1))
@@ -225,7 +225,7 @@ class DetectionValidator(BaseValidator):
         if RANK == 0:
             gathered_stats = [None] * dist.get_world_size()
             dist.gather_object(self.metrics.stats, gathered_stats, dst=0)
-            merged_stats = {key: [] for key in self.metrics.stats.keys()}
+            merged_stats = {key: [] for key in self.metrics.stats}
             for stats_dict in gathered_stats:
                 for key in merged_stats:
                     merged_stats[key].extend(stats_dict[key])
@@ -300,7 +300,12 @@ class DetectionValidator(BaseValidator):
             (Dataset): YOLO dataset.
         """
         return build_yolo_dataset(
-            self.args, img_path, batch, self.data, mode=mode, stride=self.stride,
+            self.args,
+            img_path,
+            batch,
+            self.data,
+            mode=mode,
+            stride=self.stride,
             harmonizer=getattr(self, "_harmonizer", None),
         )
 
@@ -327,6 +332,7 @@ class DetectionValidator(BaseValidator):
                 self.data["nc"] = self._harmonizer.nc
                 self.data["names"] = {i: n for i, n in enumerate(self._harmonizer.train_names)}
                 import yaml as _yaml
+
                 val_paths = []
                 for yp in hyp:
                     with open(yp) as f:
@@ -335,7 +341,7 @@ class DetectionValidator(BaseValidator):
                     v = yd.get(self.args.split or "val")
                     if v is None:
                         continue
-                    for e in (v if isinstance(v, list) else [v]):
+                    for e in v if isinstance(v, list) else [v]:
                         e = str(e)
                         val_paths.append(e if os.path.isabs(e) else os.path.join(base, e))
                 if val_paths:
